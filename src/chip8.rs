@@ -1,4 +1,4 @@
-use std::usize;
+use rand::Rng;
 
 pub const CHIP8_WIDTH: usize = 64;
 pub const CHIP8_HEIGHT: usize = 32;
@@ -37,7 +37,7 @@ impl Chip8 {
             screen: [0; CHIP8_WIDTH * CHIP8_HEIGHT],
             delay: 0,
             sound: 0,
-            keypad: [false; 16]
+            keypad: [false; 16],
         }
     }
 
@@ -91,7 +91,7 @@ impl Chip8 {
             (0xf, _, 0x3, 0x3) => self.load_bcd(x),
             (0xf, _, 0x5, 0x5) => self.store_v0_vx(x),
             (0xf, _, 0x6, 0x5) => self.load_v0_vx(x),
-            _ => todo!()
+            _ => todo!(),
         };
 
         match pc_state {
@@ -215,7 +215,9 @@ impl Chip8 {
     }
 
     fn rand(&mut self, x: usize, kk: u8) -> ProgramCounterState {
-        todo!();
+        let num: u8 = rand::rng().random();
+        self.v[x] = num & kk;
+        ProgramCounterState::Next
     }
 
     fn draw(&mut self, x: usize, y: usize, n: u8) -> ProgramCounterState {
@@ -231,7 +233,8 @@ impl Chip8 {
     }
 
     fn load_delay(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        self.v[x] = self.delay;
+        ProgramCounterState::Next
     }
 
     fn load_key(&mut self, x: usize) -> ProgramCounterState {
@@ -239,15 +242,18 @@ impl Chip8 {
     }
 
     fn load_vx_delay(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        self.delay = self.v[x];
+        ProgramCounterState::Next
     }
 
     fn load_vx_sound(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        self.sound = self.v[x];
+        ProgramCounterState::Next
     }
 
     fn add_i(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        self.i += self.v[x] as usize;
+        ProgramCounterState::Next
     }
 
     fn load_sprite(&mut self, x: usize) -> ProgramCounterState {
@@ -255,14 +261,24 @@ impl Chip8 {
     }
 
     fn load_bcd(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        let num = self.v[x];
+        self.mem[self.i] = num / 100;
+        self.mem[self.i + 1] = (num / 10) % 10;
+        self.mem[self.i + 2] = num % 10;
+        ProgramCounterState::Next
     }
 
     fn store_v0_vx(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        for i in 0..x+1 {
+            self.mem[self.i + i] = self.v[i];
+        }
+        ProgramCounterState::Next
     }
 
     fn load_v0_vx(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        for i in 0..x+1 {
+            self.v[i] = self.mem[self.i + i];
+        }
+        ProgramCounterState::Next
     }
 }
