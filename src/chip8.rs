@@ -3,6 +3,24 @@ use rand::Rng;
 pub const CHIP8_WIDTH: usize = 64;
 pub const CHIP8_HEIGHT: usize = 32;
 pub const CHIP8_MEM: usize = 4096;
+pub const CHIP8_FONTSET: [u8; 80] = [
+    0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
+    0x20, 0x60, 0x20, 0x20, 0x70, // 1
+    0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
+    0xF0, 0x10, 0xF0, 0x10, 0xF0, // 3
+    0x90, 0x90, 0xF0, 0x10, 0x10, // 4
+    0xF0, 0x80, 0xF0, 0x10, 0xF0, // 5
+    0xF0, 0x80, 0xF0, 0x90, 0xF0, // 6
+    0xF0, 0x10, 0x20, 0x40, 0x40, // 7
+    0xF0, 0x90, 0xF0, 0x90, 0xF0, // 8
+    0xF0, 0x90, 0xF0, 0x10, 0xF0, // 9
+    0xF0, 0x90, 0xF0, 0x90, 0x90, // A
+    0xE0, 0x90, 0xE0, 0x90, 0xE0, // B
+    0xF0, 0x80, 0x80, 0x80, 0xF0, // C
+    0xE0, 0x90, 0x90, 0x90, 0xE0, // D
+    0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
+];
 const OP_SIZE: usize = 2;
 
 enum ProgramCounterState {
@@ -20,6 +38,7 @@ pub struct Chip8 {
     stack: [usize; 16],
     mem: [u8; CHIP8_MEM],
     screen: [u8; CHIP8_WIDTH * CHIP8_HEIGHT],
+    draw_flag: bool,
     delay: u8,
     sound: u8,
     keypad: [bool; 16],
@@ -27,25 +46,29 @@ pub struct Chip8 {
 
 impl Chip8 {
     pub fn new() -> Self {
+        let mut ram = [0; CHIP8_MEM];
+        ram[..CHIP8_FONTSET.len()].copy_from_slice(&CHIP8_FONTSET[..]);
+
         Self {
             v: [0; 16],
             i: 0,
             pc: 0x200,
             sp: 0,
             stack: [0; 16],
-            mem: [0; CHIP8_MEM],
+            mem: ram,
             screen: [0; CHIP8_WIDTH * CHIP8_HEIGHT],
+            draw_flag: false,
             delay: 0,
             sound: 0,
             keypad: [false; 16],
         }
     }
 
-    fn get_op(&self) -> u16 {
+    pub fn get_op(&self) -> u16 {
         (self.mem[self.pc] as u16) << 8 | (self.mem[self.pc + 1] as u16)
     }
 
-    fn exec_op(&mut self, op: u16) {
+    pub fn exec_op(&mut self, op: u16) {
         let first = (op >> 12) as u8;
         let second = ((op >> 8) & 0xf) as u8;
         let third = ((op >> 4) & 0xf) as u8;
@@ -55,6 +78,7 @@ impl Chip8 {
         let kk = (op & 0xff) as u8;
         let x = second as usize;
         let y = third as usize;
+        let n = fourth as usize;
 
         let pc_state = match (first, second, third, fourth) {
             (0x0, 0x0, 0xe, 0x0) => self.clear_display(),
@@ -79,7 +103,7 @@ impl Chip8 {
             (0xa, _, _, _) => self.load_addr(nnn),
             (0xb, _, _, _) => self.jmp(nnn + self.v[0] as usize),
             (0xc, _, _, _) => self.rand(x, kk),
-            (0xd, _, _, n) => self.draw(x, y, n),
+            (0xd, _, _, _) => self.draw(x, y, n),
             (0xe, _, 0x9, 0xe) => self.skip_key_eq(x),
             (0xe, _, 0xa, 0x1) => self.skip_key_ne(x),
             (0xf, _, 0x0, 0x7) => self.load_delay(x),
@@ -94,6 +118,12 @@ impl Chip8 {
             _ => todo!(),
         };
 
+        if self.draw_flag {
+            todo!();
+        }
+
+        self.draw_flag = false;
+
         match pc_state {
             ProgramCounterState::Next => self.pc += OP_SIZE,
             ProgramCounterState::Skip => self.pc += 2 * OP_SIZE,
@@ -102,7 +132,8 @@ impl Chip8 {
     }
 
     fn clear_display(&mut self) -> ProgramCounterState {
-        todo!();
+        self.screen = [0; CHIP8_WIDTH * CHIP8_HEIGHT];
+        ProgramCounterState::Next
     }
 
     fn ret(&mut self) -> ProgramCounterState {
@@ -220,16 +251,39 @@ impl Chip8 {
         ProgramCounterState::Next
     }
 
-    fn draw(&mut self, x: usize, y: usize, n: u8) -> ProgramCounterState {
-        todo!();
+    fn draw(&mut self, x: usize, y: usize, n: usize) -> ProgramCounterState {
+        let x = self.v[x] as usize;
+        let y = self.v[y] as usize;
+        self.v[0xf] = 0;
+
+        for i in 0..n {
+            let pixel = self.mem[self.i + i];
+            for j in 0..8 {
+                let val = (pixel >> (7 - j)) & 0b1;
+                let x = (x + j) % CHIP8_WIDTH;
+                let y = (y + i) % CHIP8_HEIGHT;
+                self.v[0xf] = val & self.screen[y * 64 + x];
+                self.screen[y * 64 + x] ^= val;
+            }
+        }
+
+        self.draw_flag = true;
+
+        ProgramCounterState::Next
     }
 
     fn skip_key_eq(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        if self.keypad[self.v[x] as usize] {
+            return ProgramCounterState::Skip;
+        }
+        ProgramCounterState::Next
     }
 
     fn skip_key_ne(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        if !self.keypad[self.v[x] as usize] {
+            return ProgramCounterState::Skip;
+        }
+        ProgramCounterState::Next
     }
 
     fn load_delay(&mut self, x: usize) -> ProgramCounterState {
@@ -257,7 +311,8 @@ impl Chip8 {
     }
 
     fn load_sprite(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        self.i = (self.v[x] as usize) * 5;
+        ProgramCounterState::Next
     }
 
     fn load_bcd(&mut self, x: usize) -> ProgramCounterState {
@@ -269,14 +324,14 @@ impl Chip8 {
     }
 
     fn store_v0_vx(&mut self, x: usize) -> ProgramCounterState {
-        for i in 0..x+1 {
+        for i in 0..x + 1 {
             self.mem[self.i + i] = self.v[i];
         }
         ProgramCounterState::Next
     }
 
     fn load_v0_vx(&mut self, x: usize) -> ProgramCounterState {
-        for i in 0..x+1 {
+        for i in 0..x + 1 {
             self.v[i] = self.mem[self.i + i];
         }
         ProgramCounterState::Next
