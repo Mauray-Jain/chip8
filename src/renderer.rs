@@ -6,7 +6,7 @@ use winit::window::Window;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct Vertex {
-    position: [f32; 3],
+    position: [f32; 2],
     color: [f32; 3],
 }
 
@@ -19,10 +19,10 @@ impl Vertex {
                 wgpu::VertexAttribute {
                     offset: 0,
                     shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x3,
+                    format: wgpu::VertexFormat::Float32x2,
                 },
                 wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
+                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x3,
                 },
@@ -36,6 +36,7 @@ const QUAD_INDICES: &[u16] = &[
     1, 3, 2,
 ];
 
+#[derive(Clone, Debug)]
 pub struct Rect {
     pub x: f32,
     pub y: f32,
@@ -202,10 +203,10 @@ impl QuadRenderer {
             .iter()
             .map(|r| {
                 [
-                    Vertex { position: [r.x, r.y, 0.0], color },
-                    Vertex { position: [r.x + r.w, r.y, 0.0], color },
-                    Vertex { position: [r.x, r.y + r.h, 0.0], color },
-                    Vertex { position: [r.x + r.w, r.y + r.h, 0.0], color },
+                    Vertex { position: [r.x, r.y], color },
+                    Vertex { position: [r.x + r.w, r.y], color },
+                    Vertex { position: [r.x, r.y + r.h], color },
+                    Vertex { position: [r.x + r.w, r.y + r.h], color },
                 ]
             })
             .collect::<Vec<_>>();

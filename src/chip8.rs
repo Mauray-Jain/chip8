@@ -1,8 +1,11 @@
 use rand::Rng;
 
+use crate::time::Timer;
+
 pub const CHIP8_WIDTH: usize = 64;
 pub const CHIP8_HEIGHT: usize = 32;
 pub const CHIP8_MEM: usize = 4096;
+pub const ONE_BY_FPS: f32 = 1.0 / 60.0;
 pub const CHIP8_FONTSET: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -37,17 +40,20 @@ pub struct Chip8 {
     sp: usize,
     stack: [usize; 16],
     mem: [u8; CHIP8_MEM],
-    screen: [u8; CHIP8_WIDTH * CHIP8_HEIGHT],
-    draw_flag: bool,
+    pub screen: [u8; CHIP8_WIDTH * CHIP8_HEIGHT],
+    pub draw_flag: bool,
+    pub beep: bool,
     delay: u8,
     sound: u8,
-    keypad: [bool; 16],
+    pub keypad: [bool; 16],
+    waiting_key: isize,
 }
 
 impl Chip8 {
-    pub fn new() -> Self {
+    pub fn new(content: Vec<u8>) -> Self {
         let mut ram = [0; CHIP8_MEM];
         ram[..CHIP8_FONTSET.len()].copy_from_slice(&CHIP8_FONTSET[..]);
+        ram[0x200..content.len() + 0x200].copy_from_slice(&content);
 
         Self {
             v: [0; 16],
@@ -57,18 +63,51 @@ impl Chip8 {
             stack: [0; 16],
             mem: ram,
             screen: [0; CHIP8_WIDTH * CHIP8_HEIGHT],
-            draw_flag: false,
             delay: 0,
             sound: 0,
             keypad: [false; 16],
+            waiting_key: -1,
+            draw_flag: false,
+            beep: false,
         }
     }
 
-    pub fn get_op(&self) -> u16 {
+    pub fn tick(&mut self, timer: &mut Timer) {
+        if self.waiting_key != -1 {
+            for i in 0..self.keypad.len() {
+                timer.update();
+
+                if self.keypad[i] {
+                    self.v[self.waiting_key as usize] = i as u8;
+                    self.waiting_key = -1;
+                    self.keypad[i] = false;
+                }
+            }
+            if self.waiting_key != -1 {
+                return;
+            }
+        }
+
+        if timer.acc >= ONE_BY_FPS {
+            if self.sound > 0 {
+                self.sound -= 1;
+            }
+            if self.delay > 0 {
+                self.delay -= 1;
+            }
+
+            let op = self.get_op();
+            self.exec_op(op);
+            self.beep = self.sound > 0;
+            timer.reset();
+        }
+    }
+
+    fn get_op(&self) -> u16 {
         (self.mem[self.pc] as u16) << 8 | (self.mem[self.pc + 1] as u16)
     }
 
-    pub fn exec_op(&mut self, op: u16) {
+    fn exec_op(&mut self, op: u16) {
         let first = (op >> 12) as u8;
         let second = ((op >> 8) & 0xf) as u8;
         let third = ((op >> 4) & 0xf) as u8;
@@ -115,14 +154,8 @@ impl Chip8 {
             (0xf, _, 0x3, 0x3) => self.load_bcd(x),
             (0xf, _, 0x5, 0x5) => self.store_v0_vx(x),
             (0xf, _, 0x6, 0x5) => self.load_v0_vx(x),
-            _ => todo!(),
+            _ => panic!("Invalid instruction"),
         };
-
-        if self.draw_flag {
-            todo!();
-        }
-
-        self.draw_flag = false;
 
         match pc_state {
             ProgramCounterState::Next => self.pc += OP_SIZE,
@@ -178,7 +211,7 @@ impl Chip8 {
     }
 
     fn add_kk(&mut self, x: usize, kk: u8) -> ProgramCounterState {
-        self.v[x] += kk;
+        self.v[x] = self.v[x].wrapping_add(kk);
         ProgramCounterState::Next
     }
 
@@ -292,7 +325,8 @@ impl Chip8 {
     }
 
     fn load_key(&mut self, x: usize) -> ProgramCounterState {
-        todo!();
+        self.waiting_key = x as isize;
+        ProgramCounterState::Next
     }
 
     fn load_vx_delay(&mut self, x: usize) -> ProgramCounterState {
