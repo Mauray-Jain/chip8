@@ -32,8 +32,8 @@ impl Vertex {
 }
 
 const QUAD_INDICES: &[u16] = &[
-    0, 1, 2,
-    1, 3, 2,
+    0, 3, 1,
+    0, 2, 3,
 ];
 
 #[derive(Clone, Debug)]
@@ -205,8 +205,8 @@ impl QuadRenderer {
                 [
                     Vertex { position: [r.x, r.y], color },
                     Vertex { position: [r.x + r.w, r.y], color },
-                    Vertex { position: [r.x, r.y + r.h], color },
-                    Vertex { position: [r.x + r.w, r.y + r.h], color },
+                    Vertex { position: [r.x, r.y - r.h], color },
+                    Vertex { position: [r.x + r.w, r.y - r.h], color },
                 ]
             })
             .collect::<Vec<_>>();

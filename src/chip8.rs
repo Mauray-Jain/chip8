@@ -5,6 +5,7 @@ use crate::time::Timer;
 pub const CHIP8_WIDTH: usize = 64;
 pub const CHIP8_HEIGHT: usize = 32;
 pub const CHIP8_MEM: usize = 4096;
+pub const ONE_BY_CLOCK_SPEED: f32 = 1.0 / 500.0;
 pub const ONE_BY_FPS: f32 = 1.0 / 60.0;
 pub const CHIP8_FONTSET: [u8; 80] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
@@ -40,13 +41,14 @@ pub struct Chip8 {
     sp: usize,
     stack: [usize; 16],
     mem: [u8; CHIP8_MEM],
-    pub screen: [u8; CHIP8_WIDTH * CHIP8_HEIGHT],
+    pub screen: [[u8; CHIP8_WIDTH]; CHIP8_HEIGHT],
     pub draw_flag: bool,
     pub beep: bool,
     delay: u8,
     sound: u8,
-    pub keypad: [bool; 16],
-    waiting_key: isize,
+    keypad: [bool; 16],
+    last_key: Option<u8>,
+    waiting_key: bool,
 }
 
 impl Chip8 {
@@ -62,30 +64,22 @@ impl Chip8 {
             sp: 0,
             stack: [0; 16],
             mem: ram,
-            screen: [0; CHIP8_WIDTH * CHIP8_HEIGHT],
+            screen: [[0; CHIP8_WIDTH]; CHIP8_HEIGHT],
             delay: 0,
             sound: 0,
             keypad: [false; 16],
-            waiting_key: -1,
+            last_key: None,
+            waiting_key: false,
             draw_flag: false,
             beep: false,
         }
     }
 
-    pub fn tick(&mut self, timer: &mut Timer) {
-        if self.waiting_key != -1 {
-            for i in 0..self.keypad.len() {
-                timer.update();
-
-                if self.keypad[i] {
-                    self.v[self.waiting_key as usize] = i as u8;
-                    self.waiting_key = -1;
-                    self.keypad[i] = false;
-                }
-            }
-            if self.waiting_key != -1 {
-                return;
-            }
+    pub fn tick(&mut self, timer: &mut Timer, clock_timer: &mut Timer) {
+        if clock_timer.acc >= ONE_BY_CLOCK_SPEED {
+            let op = self.get_op();
+            self.exec_op(op);
+            clock_timer.reset();
         }
 
         if timer.acc >= ONE_BY_FPS {
@@ -96,11 +90,17 @@ impl Chip8 {
                 self.delay -= 1;
             }
 
-            let op = self.get_op();
-            self.exec_op(op);
             self.beep = self.sound > 0;
             timer.reset();
         }
+    }
+
+    pub fn update_keypad(&mut self, code: u8, pressed: bool) {
+        if self.waiting_key && !pressed {
+            self.last_key = Some(code);
+        }
+
+        self.keypad[code as usize] = pressed;
     }
 
     fn get_op(&self) -> u16 {
@@ -154,7 +154,7 @@ impl Chip8 {
             (0xf, _, 0x3, 0x3) => self.load_bcd(x),
             (0xf, _, 0x5, 0x5) => self.store_v0_vx(x),
             (0xf, _, 0x6, 0x5) => self.load_v0_vx(x),
-            _ => panic!("Invalid instruction"),
+            _ => panic!("Invalid instruction: {op:#x}"),
         };
 
         match pc_state {
@@ -165,7 +165,7 @@ impl Chip8 {
     }
 
     fn clear_display(&mut self) -> ProgramCounterState {
-        self.screen = [0; CHIP8_WIDTH * CHIP8_HEIGHT];
+        self.screen = [[0; CHIP8_WIDTH]; CHIP8_HEIGHT];
         ProgramCounterState::Next
     }
 
@@ -222,47 +222,54 @@ impl Chip8 {
 
     fn or(&mut self, x: usize, y: usize) -> ProgramCounterState {
         self.v[x] |= self.v[y];
+        self.v[0xf] = 0;
         ProgramCounterState::Next
     }
 
     fn and(&mut self, x: usize, y: usize) -> ProgramCounterState {
         self.v[x] &= self.v[y];
+        self.v[0xf] = 0;
         ProgramCounterState::Next
     }
 
     fn xor(&mut self, x: usize, y: usize) -> ProgramCounterState {
         self.v[x] ^= self.v[y];
+        self.v[0xf] = 0;
         ProgramCounterState::Next
     }
 
     fn add_vy(&mut self, x: usize, y: usize) -> ProgramCounterState {
         let result = self.v[x] as u16 + self.v[y] as u16;
-        self.v[0xf] = if result > 0xff { 1 } else { 0 };
         self.v[x] = result as u8;
+        self.v[0xf] = (result > 0xff) as u8;
         ProgramCounterState::Next
     }
 
     fn sub(&mut self, x: usize, y: usize) -> ProgramCounterState {
-        self.v[0xf] = if self.v[x] > self.v[y] { 1 } else { 0 };
-        self.v[x] = self.v[x].wrapping_sub(self.v[y]);
+        let result = self.v[x] as i16 - self.v[y] as i16;
+        self.v[x] = result as u8;
+        self.v[0xf] = (result >= 0) as u8;
         ProgramCounterState::Next
     }
 
-    fn shr(&mut self, x: usize, _: usize) -> ProgramCounterState {
-        self.v[0xf] = self.v[x] & 1;
-        self.v[x] >>= 1;
+    fn shr(&mut self, x: usize, y: usize) -> ProgramCounterState {
+        let original = self.v[y];
+        self.v[x] = self.v[y] >> 1;
+        self.v[0xf] = original & 1;
         ProgramCounterState::Next
     }
 
     fn subn(&mut self, x: usize, y: usize) -> ProgramCounterState {
-        self.v[0xf] = if self.v[y] > self.v[x] { 1 } else { 0 };
-        self.v[x] = self.v[y].wrapping_sub(self.v[x]);
+        let result = self.v[y] as i16 - self.v[x] as i16;
+        self.v[x] = result as u8;
+        self.v[0xf] = (result >= 0) as u8;
         ProgramCounterState::Next
     }
 
-    fn shl(&mut self, x: usize, _: usize) -> ProgramCounterState {
-        self.v[0xf] = (self.v[x] & 0b10000000) >> 7;
-        self.v[x] <<= 1;
+    fn shl(&mut self, x: usize, y: usize) -> ProgramCounterState {
+        let original = self.v[y];
+        self.v[x] = self.v[y] << 1;
+        self.v[0xf] = (original & 0b10000000) >> 7;
         ProgramCounterState::Next
     }
 
@@ -285,18 +292,24 @@ impl Chip8 {
     }
 
     fn draw(&mut self, x: usize, y: usize, n: usize) -> ProgramCounterState {
-        let x = self.v[x] as usize;
-        let y = self.v[y] as usize;
+        let x = (self.v[x] as usize) % CHIP8_WIDTH;
+        let y = (self.v[y] as usize) % CHIP8_HEIGHT;
         self.v[0xf] = 0;
 
-        for i in 0..n {
+        'outer: for i in 0..n {
             let pixel = self.mem[self.i + i];
             for j in 0..8 {
                 let val = (pixel >> (7 - j)) & 0b1;
-                let x = (x + j) % CHIP8_WIDTH;
-                let y = (y + i) % CHIP8_HEIGHT;
-                self.v[0xf] = val & self.screen[y * 64 + x];
-                self.screen[y * 64 + x] ^= val;
+                let x = x + j;
+                let y = y + i;
+                if y >= CHIP8_HEIGHT {
+                    break 'outer;
+                }
+                if x >= CHIP8_WIDTH {
+                    continue;
+                }
+                self.v[0xf] = val & self.screen[y][x];
+                self.screen[y][x] ^= val;
             }
         }
 
@@ -325,7 +338,17 @@ impl Chip8 {
     }
 
     fn load_key(&mut self, x: usize) -> ProgramCounterState {
-        self.waiting_key = x as isize;
+        self.waiting_key = true;
+        if let None = self.last_key {
+            self.pc -= 2; // rerun this
+            return ProgramCounterState::Next;
+        }
+
+        let code = self.last_key.unwrap();
+        self.waiting_key = false;
+        self.last_key = None;
+        self.v[x] = code;
+
         ProgramCounterState::Next
     }
 
@@ -359,14 +382,16 @@ impl Chip8 {
 
     fn store_v0_vx(&mut self, x: usize) -> ProgramCounterState {
         for i in 0..x + 1 {
-            self.mem[self.i + i] = self.v[i];
+            self.mem[self.i] = self.v[i];
+            self.i += 1;
         }
         ProgramCounterState::Next
     }
 
     fn load_v0_vx(&mut self, x: usize) -> ProgramCounterState {
         for i in 0..x + 1 {
-            self.v[i] = self.mem[self.i + i];
+            self.v[i] = self.mem[self.i];
+            self.i += 1;
         }
         ProgramCounterState::Next
     }

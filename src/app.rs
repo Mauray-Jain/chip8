@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use rodio::{OutputStream, Sink, source::SineWave};
 use winit::{
     application::ApplicationHandler,
     event::*,
@@ -21,16 +22,27 @@ pub struct App {
     quads: Vec<Rect>,
     color: [f32; 3],
     timer: Timer,
+    clock_timer: Timer,
+    _stream: OutputStream,
+    sink: Sink,
 }
 
 impl App {
     pub fn new(color: [f32; 3], content: Vec<u8>) -> Self {
+        let (_stream, stream_handle) = OutputStream::try_default().expect("Unable to play audio");
+        let sink = Sink::try_new(&stream_handle).expect("Unable to play audio");
+        sink.pause();
+        sink.append(SineWave::new(440.0));
+
         Self {
             state: None,
             chip8: Chip8::new(content),
             quads: vec![],
             color,
             timer: Timer::new(),
+            clock_timer: Timer::new(),
+            _stream,
+            sink,
         }
     }
 
@@ -59,27 +71,22 @@ impl App {
             return;
         };
 
-        self.chip8.keypad[code] = pressed;
+        self.chip8.update_keypad(code, pressed);
     }
 
     pub fn update_quads(&mut self) {
-        let Some(state) = &self.state else {
-            return;
-        };
-
-        let size = state.window.inner_size();
         let mut quads = vec![];
         let chip8_width = chip8::CHIP8_WIDTH as f32;
         let chip8_height = chip8::CHIP8_HEIGHT as f32;
-        let w = (1.0 / size.width as f32) * chip8_width;
-        let h = (1.0 / size.height as f32) * chip8_height;
+        let w = 2.0 / chip8_width;
+        let h = 2.0 / chip8_height;
 
         for i in 0..chip8::CHIP8_WIDTH {
             for j in 0..chip8::CHIP8_HEIGHT {
-                if self.chip8.screen[j * chip8::CHIP8_WIDTH + i] != 0 {
+                if self.chip8.screen[j][i] != 0 {
                     quads.push(Rect {
-                        x: (i as f32) / (chip8_width / 2.0) - 1.0,
-                        y: 1.0 - (j as f32) / (chip8_height / 2.0),
+                        x: (i as f32) * 2.0 / chip8_width - 1.0,
+                        y: 1.0 - (j as f32) * 2.0 / chip8_height,
                         w,
                         h,
                     });
@@ -120,7 +127,14 @@ impl ApplicationHandler<QuadRenderer> for App {
             }
             WindowEvent::RedrawRequested => {
                 self.timer.update();
-                self.chip8.tick(&mut self.timer);
+                self.clock_timer.update();
+                self.chip8.tick(&mut self.timer, &mut self.clock_timer);
+
+                if self.chip8.beep {
+                    self.sink.play();
+                } else {
+                    self.sink.pause();
+                }
 
                 if self.chip8.draw_flag {
                     self.update_quads();
@@ -145,10 +159,16 @@ impl ApplicationHandler<QuadRenderer> for App {
                     KeyEvent {
                         physical_key: PhysicalKey::Code(code),
                         state: key_state,
+                        repeat,
                         ..
                     },
                 ..
-            } => self.update_keypad(code, key_state.is_pressed()),
+            } => {
+                if !repeat {
+                    self.update_keypad(code, key_state.is_pressed());
+                    self.state.as_ref().unwrap().window.request_redraw();
+                }
+            }
             _ => {}
         }
     }
