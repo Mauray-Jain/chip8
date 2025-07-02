@@ -308,7 +308,7 @@ impl Chip8 {
                 if x >= CHIP8_WIDTH {
                     continue;
                 }
-                self.v[0xf] = val & self.screen[y][x];
+                self.v[0xf] |= val & self.screen[y][x];
                 self.screen[y][x] ^= val;
             }
         }
