@@ -53,6 +53,7 @@ pub struct QuadRenderer {
     is_surface_configured: bool,
     clear_color: wgpu::Color,
     indices: wgpu::Buffer,
+    vertices: Vec<[Vertex; 4]>,
     pub window: Arc<Window>,
 }
 
@@ -166,6 +167,7 @@ impl QuadRenderer {
             is_surface_configured: false,
             clear_color: Color::BLACK,
             indices: index_buffer,
+            vertices: vec![],
             window,
         }
     }
@@ -199,17 +201,15 @@ impl QuadRenderer {
                     label: Some("Render encoder"),
                 });
 
-        let vertices = quads
-            .iter()
-            .map(|r| {
-                [
-                    Vertex { position: [r.x, r.y], color },
-                    Vertex { position: [r.x + r.w, r.y], color },
-                    Vertex { position: [r.x, r.y - r.h], color },
-                    Vertex { position: [r.x + r.w, r.y - r.h], color },
-                ]
-            })
-            .collect::<Vec<_>>();
+        self.vertices.clear();
+        for r in quads.iter() {
+            self.vertices.push([
+                Vertex { position: [r.x, r.y], color },
+                Vertex { position: [r.x + r.w, r.y], color },
+                Vertex { position: [r.x, r.y - r.h], color },
+                Vertex { position: [r.x + r.w, r.y - r.h], color },
+            ]);
+        }
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -230,7 +230,7 @@ impl QuadRenderer {
             render_pass.set_pipeline(&self.pipeline);
             render_pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
 
-            for v in vertices.iter() {
+            for v in self.vertices.iter() {
                 let vertex_buffer = self
                     .device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {

@@ -75,7 +75,7 @@ impl App {
     }
 
     pub fn update_quads(&mut self) {
-        let mut quads = vec![];
+        self.quads.clear();
         let chip8_width = chip8::CHIP8_WIDTH as f32;
         let chip8_height = chip8::CHIP8_HEIGHT as f32;
         let w = 2.0 / chip8_width;
@@ -84,7 +84,7 @@ impl App {
         for i in 0..chip8::CHIP8_WIDTH {
             for j in 0..chip8::CHIP8_HEIGHT {
                 if self.chip8.screen[j][i] != 0 {
-                    quads.push(Rect {
+                    self.quads.push(Rect {
                         x: (i as f32) * 2.0 / chip8_width - 1.0,
                         y: 1.0 - (j as f32) * 2.0 / chip8_height,
                         w,
@@ -93,8 +93,6 @@ impl App {
                 }
             }
         }
-
-        self.quads = quads;
     }
 }
 
@@ -166,7 +164,6 @@ impl ApplicationHandler<QuadRenderer> for App {
             } => {
                 if !repeat {
                     self.update_keypad(code, key_state.is_pressed());
-                    self.state.as_ref().unwrap().window.request_redraw();
                 }
             }
             _ => {}

@@ -13,3 +13,6 @@ Code has taken inspiration from following sources:
 
 
 Special thanks to [this CHIP-8 test suite](https://github.com/Timendus/chip8-test-suite)
+
+
+Some ROMs: (https://github.com/dmatlack/chip8/tree/master/roms)[https://github.com/dmatlack/chip8/tree/master/roms]
