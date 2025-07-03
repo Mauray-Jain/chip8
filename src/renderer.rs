@@ -5,9 +5,9 @@ use winit::window::Window;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 2],
-    color: [f32; 3],
+pub struct Vertex {
+    pub position: [f32; 2],
+    pub color: [f32; 3],
 }
 
 impl Vertex {
@@ -36,14 +36,6 @@ const QUAD_INDICES: &[u16] = &[
     0, 2, 3,
 ];
 
-#[derive(Clone, Debug)]
-pub struct Rect {
-    pub x: f32,
-    pub y: f32,
-    pub w: f32,
-    pub h: f32,
-}
-
 pub struct QuadRenderer {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -53,7 +45,6 @@ pub struct QuadRenderer {
     is_surface_configured: bool,
     clear_color: wgpu::Color,
     indices: wgpu::Buffer,
-    vertices: Vec<[Vertex; 4]>,
     pub window: Arc<Window>,
 }
 
@@ -167,7 +158,6 @@ impl QuadRenderer {
             is_surface_configured: false,
             clear_color: Color::BLACK,
             indices: index_buffer,
-            vertices: vec![],
             window,
         }
     }
@@ -183,8 +173,7 @@ impl QuadRenderer {
 
     pub fn render_quads(
         &mut self,
-        quads: &[Rect],
-        color: [f32; 3],
+        quads: &[[Vertex; 4]],
     ) -> Result<(), wgpu::SurfaceError> {
         self.window.request_redraw();
         if !self.is_surface_configured {
@@ -200,16 +189,6 @@ impl QuadRenderer {
                 .create_command_encoder(&wgpu::wgt::CommandEncoderDescriptor {
                     label: Some("Render encoder"),
                 });
-
-        self.vertices.clear();
-        for r in quads.iter() {
-            self.vertices.push([
-                Vertex { position: [r.x, r.y], color },
-                Vertex { position: [r.x + r.w, r.y], color },
-                Vertex { position: [r.x, r.y - r.h], color },
-                Vertex { position: [r.x + r.w, r.y - r.h], color },
-            ]);
-        }
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -230,7 +209,7 @@ impl QuadRenderer {
             render_pass.set_pipeline(&self.pipeline);
             render_pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint16);
 
-            for v in self.vertices.iter() {
+            for v in quads.iter() {
                 let vertex_buffer = self
                     .device
                     .create_buffer_init(&wgpu::util::BufferInitDescriptor {

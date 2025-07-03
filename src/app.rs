@@ -9,17 +9,14 @@ use winit::{
     window::Window,
 };
 
-use crate::renderer::Rect;
-use crate::time::Timer;
 use crate::{
-    chip8::{self, Chip8},
-    renderer::QuadRenderer,
+    chip8::{self, Chip8}, renderer::{QuadRenderer, Vertex}, time::Timer
 };
 
 pub struct App {
     state: Option<QuadRenderer>,
     chip8: Chip8,
-    quads: Vec<Rect>,
+    quads: Vec<[Vertex; 4]>,
     color: [f32; 3],
     timer: Timer,
     clock_timer: Timer,
@@ -84,12 +81,14 @@ impl App {
         for i in 0..chip8::CHIP8_WIDTH {
             for j in 0..chip8::CHIP8_HEIGHT {
                 if self.chip8.screen[j][i] != 0 {
-                    self.quads.push(Rect {
-                        x: (i as f32) * 2.0 / chip8_width - 1.0,
-                        y: 1.0 - (j as f32) * 2.0 / chip8_height,
-                        w,
-                        h,
-                    });
+                    let x = (i as f32) * 2.0 / chip8_width - 1.0;
+                    let y = 1.0 - (j as f32) * 2.0 / chip8_height;
+                    self.quads.push([
+                        Vertex { position: [x, y], color: self.color },
+                        Vertex { position: [x + w, y], color: self.color },
+                        Vertex { position: [x, y - h], color: self.color },
+                        Vertex { position: [x + w, y - h], color: self.color },
+                    ]);
                 }
             }
         }
@@ -141,7 +140,7 @@ impl ApplicationHandler<QuadRenderer> for App {
 
                 let state = self.state.as_mut().unwrap();
 
-                match state.render_quads(self.quads.as_slice(), self.color) {
+                match state.render_quads(self.quads.as_slice()) {
                     Ok(_) => {}
                     Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
                         let size = state.window.inner_size();
