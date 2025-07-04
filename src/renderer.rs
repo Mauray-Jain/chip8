@@ -31,6 +31,20 @@ impl Vertex {
     }
 }
 
+pub type Rect = [Vertex; 4];
+
+#[macro_export]
+macro_rules! rect {
+    ($x:expr, $y:expr, $w:expr, $h:expr, $color:expr) => {
+        [
+            Vertex { position: [$x, $y], color: $color },
+            Vertex { position: [$x + $w, $y], color: $color },
+            Vertex { position: [$x, $y - $h], color: $color },
+            Vertex { position: [$x + $w, $y - $h], color: $color },
+        ]
+    };
+}
+
 const QUAD_INDICES: &[u16] = &[
     0, 3, 1,
     0, 2, 3,
